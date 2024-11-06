@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+import argparse
+import socket
+import ipaddress
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
+
+# Function to check if a host is alive
+def is_host_alive(ip):
+    try:
+        socket.create_connection((ip, 80), timeout=1)
+        return ip
+    except (socket.timeout, socket.error):
+        return None
+
+# Function to scan a single port
+def scan_port(ip, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        try:
+            sock.connect((ip, port))
+            return port, 'open'
+        except:
+            return port, 'closed'
+
+# Function to scan a host
+def scan_host(ip, ports):
+    print(f"Scanning {ip}")
+    results = []
+    with ThreadPoolExecutor() as executor:
+        future_to_port = {executor.submit(scan_port, ip, port): port for port in ports}
+        for future in as_completed(future_to_port):
+            port, state = future.result()
+            results.append((port, state))
+            print(f"{port:5d}    {state}")
+    return ip, results
+
+# Function to scan a network for available hosts
+def scan_network(network):
+    try:
+        network_hosts = [str(ip) for ip in ipaddress.IPv4Network(network, strict=False)]
+    except ValueError as e:
+        print(f"Error: {e}")
+        return []
+        
+    available_hosts = []
+    with ThreadPoolExecutor() as executor:
+        future_to_ip = {executor.submit(is_host_alive, ip): ip for ip in network_hosts}
+        for future in as_completed(future_to_ip):
+            ip = future.result()
+            if ip:
+                available_hosts.append(ip)
+                print(f"Host is alive: {ip}")
+    return available_hosts
+
+# Parse command-line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description="A simple network scanner.")
+    parser.add_argument("target", help="IP address, hostname, or CIDR up to /16")
+    parser.add_argument("-p", "--ports", help="Comma-separated list of ports to scan")
+    parser.add_argument("-p-", "--all-ports", action="store_true", help="Scan all ports (1-65535)")
+    parser.add_argument("-f", "--file", help="File containing list of hosts")
+    parser.add_argument("-sn", "--scan-network", action="store_true", help="Ping scan for available hosts")
+    parser.add_argument("-o", "--output", help="Output file for saving results in JSON format")
+    return parser.parse_args()
+
+# Validate ports
+def validate_ports(ports):
+    try:
+        return [int(port) for port in ports.split(',')]
+    except ValueError:
+        print("Error: Ports should be a comma-separated list of integers.")
+        return []
+
+# Main function
+def main():
+    args = parse_args()
+
+    start_time = time.time()
+
+    # Determine target IPs
+    if args.file:
+        if not os.path.isfile(args.file):
+            print(f"Error: File {args.file} does not exist.")
+            return
+        with open(args.file, 'r') as f:
+            targets = [line.strip() for line in f]
+    elif '/' in args.target:
+        targets = scan_network(args.target)
+    else:
+        targets = [args.target]
+
+    # Set port range
+    if args.all_ports:
+        ports = range(1, 65536)
+    elif args.ports:
+        ports = validate_ports(args.ports)
+        if not ports:
+            return
+    else:
+        ports = range(1, 10001)
+
+    results = {}
+    if args.scan_network:
+        available_hosts = [is_host_alive(ip) for ip in targets]
+        available_hosts = [host for host in available_hosts if host]
+        print(f"Available hosts: {', '.join(available_hosts)}")
+        print(f"{len(targets) - len(available_hosts)} host(s) are NOT alive")
+    else:
+        for target in targets:
+            try:
+                ip = socket.gethostbyname(target)
+                ip, scan_result = scan_host(ip, ports)
+                results[ip] = scan_result
+                print("---------------------")
+            except socket.gaierror:
+                print(f"Error: Unable to resolve {target}")
+
+    end_time = time.time()
+    total_hosts = len(targets)
+    print(f"Scanned {total_hosts} IP addresses in {end_time - start_time:.2f} seconds")
+
+    if args.output:
+        try:
+            with open(args.output, 'w') as outfile:
+                json.dump(results, outfile, indent=4)
+            print(f"Results saved to {args.output}")
+        except IOError as e:
+            print(f"Error: Unable to write to file {args.output}. {e}")
+
+if __name__ == "__main__":
+    main()
