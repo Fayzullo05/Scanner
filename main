@@ -7,7 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
-# Function to check if a host is alive
+#check if a host is alive
 def is_host_alive(ip):
     try:
         socket.create_connection((ip, 80), timeout=1)
@@ -15,7 +15,7 @@ def is_host_alive(ip):
     except (socket.timeout, socket.error):
         return None
 
-# Function to scan a single port
+#scan a port
 def scan_port(ip, port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(1)
@@ -25,7 +25,7 @@ def scan_port(ip, port):
         except:
             return port, 'closed'
 
-# Function to scan a host
+#scan a host
 def scan_host(ip, ports):
     print(f"Scanning {ip}")
     results = []
@@ -37,7 +37,7 @@ def scan_host(ip, ports):
             print(f"{port:5d}    {state}")
     return ip, results
 
-# Function to scan a network for available hosts
+#scan a network for available hosts
 def scan_network(network):
     try:
         network_hosts = [str(ip) for ip in ipaddress.IPv4Network(network, strict=False)]
