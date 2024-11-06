@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 import socket
 import ipaddress
@@ -7,15 +8,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
-#check if a host is alive
+# Function to check if a host is alive
 def is_host_alive(ip):
     try:
-        socket.create_connection((ip, 80), timeout=1)
+        # Increased timeout for host reachability
+        socket.create_connection((ip, 80), timeout=3)
+        print(f"Host {ip} is alive.")
         return ip
     except (socket.timeout, socket.error):
+        print(f"Host {ip} is not responding.")
         return None
 
-#scan a port
+# Function to scan a single port
 def scan_port(ip, port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(1)
@@ -25,7 +29,7 @@ def scan_port(ip, port):
         except:
             return port, 'closed'
 
-#scan a host
+# Function to scan a host
 def scan_host(ip, ports):
     print(f"Scanning {ip}")
     results = []
@@ -34,10 +38,10 @@ def scan_host(ip, ports):
         for future in as_completed(future_to_port):
             port, state = future.result()
             results.append((port, state))
-            print(f"{port:5d}    {state}")
+            print(f"{port:<5}    {state}")
     return ip, results
 
-#scan a network for available hosts
+# Function to scan a network for available hosts
 def scan_network(network):
     try:
         network_hosts = [str(ip) for ip in ipaddress.IPv4Network(network, strict=False)]
@@ -52,7 +56,6 @@ def scan_network(network):
             ip = future.result()
             if ip:
                 available_hosts.append(ip)
-                print(f"Host is alive: {ip}")
     return available_hosts
 
 # Parse command-line arguments
@@ -77,7 +80,6 @@ def validate_ports(ports):
 # Main function
 def main():
     args = parse_args()
-
     start_time = time.time()
 
     # Determine target IPs
@@ -92,7 +94,7 @@ def main():
     else:
         targets = [args.target]
 
-    # Set port range
+    # Set port range (check a smaller set of ports for debugging)
     if args.all_ports:
         ports = range(1, 65536)
     elif args.ports:
@@ -100,7 +102,8 @@ def main():
         if not ports:
             return
     else:
-        ports = range(1, 10001)
+        # For debugging purposes, scan a smaller set of ports first
+        ports = [21, 22, 80]  # Example of commonly open ports
 
     results = {}
     if args.scan_network:
@@ -113,7 +116,8 @@ def main():
             try:
                 ip = socket.gethostbyname(target)
                 ip, scan_result = scan_host(ip, ports)
-                results[ip] = scan_result
+                if scan_result:  # Save all results, including closed ports
+                    results[ip] = scan_result
                 print("---------------------")
             except socket.gaierror:
                 print(f"Error: Unable to resolve {target}")
@@ -122,6 +126,7 @@ def main():
     total_hosts = len(targets)
     print(f"Scanned {total_hosts} IP addresses in {end_time - start_time:.2f} seconds")
 
+    # Save results to output file if specified
     if args.output:
         try:
             with open(args.output, 'w') as outfile:
